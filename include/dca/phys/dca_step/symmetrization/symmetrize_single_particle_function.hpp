@@ -532,33 +532,61 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
   for (int w_ind = 0; w_ind < WDmn::dmn_size() / 2; ++w_ind) {
     for (int c_ind = 0; c_ind < ClusterDomain::dmn_size(); ++c_ind) {
       const int new_c_idx =
-          representation == domains::REAL_SPACE ? oppositeSite<ClusterDomain>(c_ind) : c_ind;
+        oppositeSite<ClusterDomain>(c_ind);
 
       for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
         for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
           constexpr bool real_hamiltonian = !Parameters::complex_g0;
           if constexpr (real_hamiltonian) {
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
-            const auto tmp3 = f(b0, b1, c_ind, w_0 - w_ind);      // F(w) = conj(F(-w))
-            const auto tmp4 = f(b1, b0, new_c_idx, w_ind);        // F(w) = F^t(w)
-
-            const auto tmp = (tmp1 + std::conj(tmp2) + std::conj(tmp3) + tmp4) / 4.;
-
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
-            f_new(b0, b1, c_ind, w_0 - w_ind) = std::conj(tmp);
-            f_new(b1, b0, new_c_idx, w_ind) = tmp;
+              const auto tmp0 = f(b0, b1, c_ind, w_ind);
+              const auto tmp1 = f(b0, b1, new_c_idx, w_ind);
+              const auto tmp2 = f(b0, b1, c_ind, w_0 - w_ind);
+              const auto tmp3 = f(b0, b1, new_c_idx, w_0 - w_ind);
+              const auto tmp4 = f(b1, b0, c_ind, w_ind);
+              const auto tmp5 = f(b1, b0, new_c_idx, w_ind);
+              const auto tmp6 = f(b1, b0, c_ind, w_0 - w_ind);
+              const auto tmp7 = f(b1, b0, new_c_idx, w_0 - w_ind);
+              if (representation == domains::MOMENTUM_SPACE) {
+                  if ((b0 == 0 && b1 != b0)||(b1 == 0 && b1 != b0)) {
+                      
+                      const auto tmp = (tmp0 + tmp1 - std::conj(tmp2) - std::conj(tmp3) - (tmp4 + tmp5 - std::conj(tmp6) - std::conj(tmp7))) / 8.;
+                      
+                      f_new(b0, b1, c_ind, w_ind) = tmp;
+                      f_new(b0, b1, new_c_idx, w_ind) = tmp;
+                      f_new(b0, b1, c_ind, w_0 - w_ind) = - 1.0 *std::conj(tmp);
+                      f_new(b0, b1, new_c_idx, w_0 - w_ind) = - 1.0 * std::conj(tmp);
+                      f_new(b1, b0, c_ind, w_ind) = - 1.0 * tmp;
+                      f_new(b1, b0, new_c_idx, w_ind) = - 1.0 * tmp;
+                      f_new(b1, b0, c_ind, w_0 - w_ind) = std::conj(tmp);
+                      f_new(b1, b0, new_c_idx, w_0 - w_ind) =  std::conj(tmp);
+                  }
+                  else {
+                      const auto tmp = (tmp0 + tmp1 + std::conj(tmp2) + std::conj(tmp3) + (tmp4 + tmp5 + std::conj(tmp6) + std::conj(tmp7))) / 8.;
+                      f_new(b0, b1, c_ind, w_ind) = tmp;
+                      f_new(b0, b1, new_c_idx, w_ind) = tmp;
+                      f_new(b0, b1, c_ind, w_0 - w_ind) = std::conj(tmp);
+                      f_new(b0, b1, new_c_idx, w_0 - w_ind) = std::conj(tmp);
+                      f_new(b1, b0, c_ind, w_ind) = tmp;
+                      f_new(b1, b0, new_c_idx, w_ind) = tmp;
+                      f_new(b1, b0, c_ind, w_0 - w_ind) = std::conj(tmp);
+                      f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
+                  }
+              }
+              else if (representation == domains::REAL_SPACE) {
+                  const auto tmp = (tmp0 + std::conj(tmp7)) / 2.;
+                  f_new(b0, b1, c_ind, w_ind) = tmp;
+                  f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
+              }
           }
           else {  // Hamiltonian is complex.
-            // std::cout << "Symmetrizing complex Hamiltonian \n";
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
+              // std::cout << "Symmetrizing complex Hamiltonian \n";
+              const auto tmp1 = f(b0, b1, c_ind, w_ind);
+              const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
 
-            const auto tmp = (tmp1 + std::conj(tmp2)) / 2.;
+              const auto tmp = (tmp1 + std::conj(tmp2)) / 2.;
 
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
+              f_new(b0, b1, c_ind, w_ind) = tmp;
+              f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
           }
         }
       }
@@ -567,7 +595,6 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
                                                  ClusterDomain::get_elements(), c_ind, w_ind, w_0);
     }
   }
-
   if (do_diff) {
     double max = 0;
     for (std::size_t ind = 0; ind < f.size(); ++ind) {
@@ -699,12 +726,12 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
           double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
           norm += std::abs(sign);
 
-          if (b0 != b1) {
-            R_new_ind = r_ind;
-            b0_new = b0;
-            b1_new = b1;
-            sign = 1;
-          }
+          //if (b0 != b1) {
+          //  R_new_ind = r_ind;
+          //  b0_new = b0;
+          //  b1_new = b1;
+          //  sign = 1;
+          //}
 
           f_new(b0, b1, r_ind) += sign * f(b0_new, b1_new, R_new_ind);
         }
@@ -723,6 +750,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
 
   if (do_diff)
     difference(max, f.get_name(), "r-cluster-domain of the function : " + f.get_name() + "\n");
+
 }
 
 template <class Parameters>
