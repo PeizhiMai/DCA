@@ -11,6 +11,7 @@
 // nearest-neighbour hopping and on site interaction. The results are expected to be the
 // same up to numerical error.
 
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -78,7 +79,11 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
   }
 
   Parameters parameters(dca::util::GitVersion::string(), concurrency);
-  parameters.read_input_and_broadcast<dca::io::JSONReader>(input_dir + "threaded_input.json");
+  const char* input_override = std::getenv("DCA_CPU_GPU_TEST_INPUT");
+  const std::string input_file =
+      input_override ? input_override : input_dir + "threaded_input.json";
+  std::cout << "Reading input " << input_file << "\n";
+  parameters.read_input_and_broadcast<dca::io::JSONReader>(input_file);
   parameters.update_model();
   parameters.update_domains();
 
@@ -105,10 +110,26 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
   QmcSolverGpu qmc_solver_gpu(parameters, data_gpu, nullptr);
   perform_integration(qmc_solver_gpu);
 
+  // dca::func::util::difference reports relative CPU/GPU norm errors:
+  // err_i = abs(cpu_i - gpu_i), ref_i = abs(cpu_i)
+  // l1 = sum_i err_i / sum_i ref_i
+  // l2 = sqrt(sum_i err_i^2 / sum_i ref_i^2)
+  // l_inf = max_i err_i / max_i ref_i
   const auto err_g = dca::func::util::difference(data_cpu.G_k_w, data_gpu.G_k_w);
-  const auto err_g4 = dca::func::util::difference(data_cpu.get_G4()[0], data_gpu.get_G4()[0]);
+  std::cout << "CPU/GPU G_k_w relative differences:"
+            << " l1=" << err_g.l1 << " l2=" << err_g.l2 << " l_inf=" << err_g.l_inf
+            << "\n";
 
   EXPECT_GE(5e-7, err_g.l_inf);
-  // Is this too large?
-  EXPECT_GE(5e-5, err_g4.l_inf);
+
+  const auto& g4_cpu = data_cpu.get_G4();
+  const auto& g4_gpu = data_gpu.get_G4();
+  ASSERT_EQ(g4_cpu.size(), g4_gpu.size());
+  for (std::size_t channel = 0; channel < g4_cpu.size(); ++channel) {
+    const auto err_g4 = dca::func::util::difference(g4_cpu[channel], g4_gpu[channel]);
+    std::cout << "CPU/GPU G4[" << channel << "] relative differences:"
+              << " l1=" << err_g4.l1 << " l2=" << err_g4.l2 << " l_inf=" << err_g4.l_inf
+              << "\n";
+    EXPECT_GE(5e-5, err_g4.l_inf) << "G4 channel: " << channel;
+  }
 }
