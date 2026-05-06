@@ -180,9 +180,8 @@ protected:
   void getGMultibandAtMomenta(int s, const Momentum& k1, int k1_folded, const Momentum& k2,
                               int k2_folded, int w1, int w2, Matrix& G);
 
-  void computeMAtMomenta(int s, const Momentum& k1, const Momentum& k2, int w1, int w2, Matrix& M);
-
-  void getG0FoldedWithPhase(int s, const Momentum& k, int k_folded, int w, Matrix& G0) const;
+  void applyFoldedMomentumPhase(Matrix& G, const Momentum& k1, int k1_folded,
+                                const Momentum& k2, int k2_folded) const;
 
   template <class Configuration, typename SpScalar>
   double computeM(const std::array<linalg::Matrix<SpScalar, linalg::CPU>, 2>& M_pair,
@@ -216,7 +215,7 @@ protected:
 
 private:
   // work spaces for computeGMultiband.
-  Matrix G0_M_, G_a_, G_b_, G0_a_, G0_b_, M_k_;
+  Matrix G0_M_, G_a_, G_b_;
 
   func::function<TpComplex, func::dmn_variadic<RDmn, RDmn, BDmn, BDmn, SDmn, WTpExtPosDmn, WTpExtDmn>>
       M_r_r_w_w_;
@@ -230,9 +229,6 @@ TpAccumulator<Parameters, DT, linalg::CPU>::TpAccumulator(
       G0_M_(n_bands_),
       G_a_(n_bands_),
       G_b_(n_bands_),
-      G0_a_(n_bands_),
-      G0_b_(n_bands_),
-      M_k_(n_bands_),
       M_r_r_w_w_("M_r_r_w_w") {
   if constexpr (DT == DistType::BLOCKED) {
     std::cerr << "Blocked distribution is not supported in the CPU accumulator. "
@@ -420,43 +416,19 @@ auto TpAccumulator<Parameters, DT, linalg::CPU>::qMinusKVector(const int k, cons
 }
 
 template <class Parameters, DistType DT>
-void TpAccumulator<Parameters, DT, linalg::CPU>::computeMAtMomenta(
-    const int s, const Momentum& k1, const Momentum& k2, const int w1, const int w2, Matrix& M) {
-  M.resizeNoCopy(n_bands_);
-  const auto& r_elements = RDmn::parameter_type::get_elements();
-  const auto& bands = BDmn::get_elements();
-  const TpComplex norm(1. / RDmn::dmn_size(), 0);
-
-  for (int b2 = 0; b2 < n_bands_; ++b2)
-    for (int b1 = 0; b1 < n_bands_; ++b1) {
-      TpComplex value(0, 0);
-      for (int r2 = 0; r2 < RDmn::dmn_size(); ++r2)
-        for (int r1 = 0; r1 < RDmn::dmn_size(); ++r1) {
-          const Real phase = dca::math::util::innerProduct(k1, r_elements[r1]) -
-                             dca::math::util::innerProduct(k2, r_elements[r2]);
-          value += std::exp(TpComplex(0, phase)) * M_r_r_w_w_(r1, r2, b1, b2, s, w1, w2);
-        }
-
-      const Real band_phase = dca::math::util::innerProduct(k1, bands[b1].a_vec) -
-                              dca::math::util::innerProduct(k2, bands[b2].a_vec);
-      M(b1, b2) = norm * std::exp(TpComplex(0, band_phase)) * value;
-    }
-}
-
-template <class Parameters, DistType DT>
-void TpAccumulator<Parameters, DT, linalg::CPU>::getG0FoldedWithPhase(
-    const int s, const Momentum& k, const int k_folded, const int w, Matrix& G0) const {
-  G0.resizeNoCopy(n_bands_);
+void TpAccumulator<Parameters, DT, linalg::CPU>::applyFoldedMomentumPhase(
+    Matrix& G, const Momentum& k1, const int k1_folded, const Momentum& k2, const int k2_folded) const {
   const auto& k_elements = KDmn::parameter_type::get_elements();
-  const auto& K = k_elements[k_folded];
   const auto& bands = BDmn::get_elements();
+  const auto& K1 = k_elements[k1_folded];
+  const auto& K2 = k_elements[k2_folded];
 
   for (int b2 = 0; b2 < n_bands_; ++b2)
     for (int b1 = 0; b1 < n_bands_; ++b1) {
       Real phase = 0;
-      for (std::size_t d = 0; d < k.size(); ++d)
-        phase += (k[d] - K[d]) * (bands[b2].a_vec[d] - bands[b1].a_vec[d]);
-      G0(b1, b2) = G0_(b1, b2, s, k_folded, w) * std::exp(TpComplex(0, phase));
+      for (std::size_t d = 0; d < k1.size(); ++d)
+        phase += (k1[d] - K1[d]) * bands[b1].a_vec[d] - (k2[d] - K2[d]) * bands[b2].a_vec[d];
+      G(b1, b2) *= std::exp(TpComplex(0, phase));
     }
 }
 
@@ -464,30 +436,8 @@ template <class Parameters, DistType DT>
 void TpAccumulator<Parameters, DT, linalg::CPU>::getGMultibandAtMomenta(
     const int s, const Momentum& k1, const int k1_folded, const Momentum& k2, const int k2_folded,
     const int w1, const int w2, Matrix& G) {
-  const int w1_ext = w1 + extension_index_offset_;
-  const int w2_ext = w2 + extension_index_offset_;
-
-  computeMAtMomenta(s, k1, k2, w1_ext, w2_ext, M_k_);
-  getG0FoldedWithPhase(s, k1, k1_folded, w1_ext, G0_a_);
-  getG0FoldedWithPhase(s, k2, k2_folded, w2_ext, G0_b_);
-
-  const BandBlockView G0_a_view(G0_a_.ptr(), n_bands_, n_bands_);
-  const BandBlockView G0_b_view(G0_b_.ptr(), n_bands_, n_bands_);
-  BandBlockView M_k_view(M_k_.ptr(), n_bands_, n_bands_);
-  matrixOperationsGMultiband(G0_a_view, G0_b_view, M_k_view, G0_M_);
-
-  constexpr Real eps = 1.e-6;
-  bool same_momentum = k1.size() == k2.size();
-  for (std::size_t d = 0; same_momentum && d < k1.size(); ++d)
-    same_momentum = std::abs(k1[d] - k2[d]) < eps;
-
-  if (same_momentum && w1 == w2) {
-    for (int b2 = 0; b2 < n_bands_; ++b2)
-      for (int b1 = 0; b1 < n_bands_; ++b1)
-        M_k_(b1, b2) += G0_a_(b1, b2) * beta_;
-  }
-
-  G = M_k_;
+  getGMultiband(s, k1_folded, k2_folded, w1, w2, G);
+  applyFoldedMomentumPhase(G, k1, k1_folded, k2, k2_folded);
 }
 
 template <class Parameters, DistType DT>
