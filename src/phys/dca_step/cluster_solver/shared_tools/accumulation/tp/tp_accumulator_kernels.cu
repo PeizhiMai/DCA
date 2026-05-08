@@ -45,6 +45,14 @@ using dca::util::RealAlias;
 using phys::FourPointType;
 using dca::util::SignType;
 
+template <typename Scalar>
+__device__ inline GPUComplex<RealAlias<Scalar>> makeQMinusKPhase(const int k, const int k_ex,
+                                                                 const int band) {
+  return GPUComplex<RealAlias<Scalar>>{
+      static_cast<RealAlias<Scalar>>(g4_helper.qMinusKPhaseReal(k, k_ex, band)),
+      static_cast<RealAlias<Scalar>>(g4_helper.qMinusKPhaseImag(k, k_ex, band))};
+}
+
 std::string toString(const std::array<dim3, 2>& dims) {
   std::ostringstream oss;
   oss << "{{" << static_cast<int>((dims[0]).x) << "," << (dims[0]).y << "},{" << dims[1].x << ","
@@ -655,35 +663,25 @@ __global__ void updateG4Kernel(GPUComplex<RealAlias<Scalar>>* __restrict__ G4,
     const GPUComplex<RealAlias<Scalar>> Ga_1 = G_up[i_a + ldgu * j_a];
     const GPUComplex<RealAlias<Scalar>> Ga_2 = G_down[i_a + ldgd * j_a];
 
-    int w1_b(w1);
-    int w2_b(w2);
-    int k1_b(k1);
-    int k2_b(k2);
-
-    // For Q=0, keep the partner leg on the same stored grid and use the
-    // explicit complex conjugate below. Finite-Q continues to use the folded
-    // (Q-k, nu-w) partner indices.
-    if (k_ex != 0 || w_ex != 0) {
-      w1_b = g4_helper.wexMinus(w1, w_ex);
-      w2_b = g4_helper.wexMinus(w2, w_ex);
-      k1_b = g4_helper.kexMinus(k1, k_ex);
-      k2_b = g4_helper.kexMinus(k2, k_ex);
-    }
+    int w1_b(g4_helper.wexMinus(w1, w_ex));
+    int w2_b(g4_helper.wexMinus(w2, w_ex));
+    int k1_b(g4_helper.kexMinus(k1, k_ex));
+    int k2_b(g4_helper.kexMinus(k2, k_ex));
 
     if (g4_helper.get_bands() == 1)
       g4_helper.extendGIndices(k1_b, k2_b, w1_b, w2_b);
     else
       g4_helper.extendGIndicesMultiBand(k1_b, k2_b, w1_b, w2_b);
 
-    // Keep the external band placement and take the complex conjugate of the
-    // partner leg directly.
     int i_b = nb * k1_b + no * w1_b + b2;
     int j_b = nb * k2_b + no * w2_b + b4;
 
-    const GPUComplex<RealAlias<Scalar>> Gb_1 = conj(G_down[i_b + ldgd * j_b]);
-    const GPUComplex<RealAlias<Scalar>> Gb_2 = conj(G_up[i_b + ldgu * j_b]);
+    const GPUComplex<RealAlias<Scalar>> Gb_1 = G_down[i_b + ldgd * j_b];
+    const GPUComplex<RealAlias<Scalar>> Gb_2 = G_up[i_b + ldgu * j_b];
 
-    contribution = sign_over_2 * (Ga_1 * Gb_1 + Ga_2 * Gb_2);
+    const auto phase =
+        makeQMinusKPhase<Scalar>(k1, k_ex, b2) * conj(makeQMinusKPhase<Scalar>(k2, k_ex, b4));
+    contribution = sign_over_2 * (Ga_1 * Gb_1 + Ga_2 * Gb_2) * phase;
   }
 
   decltype(G4) const result_ptr = G4 + local_g4_index;
@@ -788,6 +786,8 @@ __global__ void updateG4KernelNoSpin(GPUComplex<RealAlias<Scalar>>* __restrict__
   // the exchange momentum, implies the same operation is performed with the exchange frequency.
   // See tp_accumulator.hpp for more details.
   if constexpr (type == FourPointType::PARTICLE_PARTICLE_UP_DOWN) {
+    const auto phase =
+        makeQMinusKPhase<Scalar>(k1, k_ex, b2) * conj(makeQMinusKPhase<Scalar>(k2, k_ex, b4));
     {
       int w1_a(w1);
       int w2_a(w2);
@@ -808,9 +808,9 @@ __global__ void updateG4KernelNoSpin(GPUComplex<RealAlias<Scalar>>* __restrict__
       int j_b = nb * k2_b + no * w2_b + b4;
 
       const GPUComplex<RealAlias<Scalar>> Ga_1 = G_dn[i_a + ldgd * j_a];
-      const GPUComplex<RealAlias<Scalar>> Gb_1 = conj(G_dn[i_b + ldgd * j_b]);
+      const GPUComplex<RealAlias<Scalar>> Gb_1 = G_dn[i_b + ldgd * j_b];
 
-      contribution = complex_factor * (Ga_1 * Gb_1);
+      contribution = complex_factor * (Ga_1 * Gb_1) * phase;
     }
     {
       int w1_a(w1);
@@ -828,13 +828,13 @@ __global__ void updateG4KernelNoSpin(GPUComplex<RealAlias<Scalar>>* __restrict__
       int i_a = nb * k1_a + no * w1_a + b1;
       int j_a = nb * k2_a + no * w2_a + b4;
 
-      int i_b = nb * k1_b + no * w1_b + b3;
-      int j_b = nb * k2_b + no * w2_b + b2;
+      int i_b = nb * k1_b + no * w1_b + b2;
+      int j_b = nb * k2_b + no * w2_b + b3;
 
       const GPUComplex<RealAlias<Scalar>> Ga_1 = G_dn[i_a + ldgd * j_a];
-      const GPUComplex<RealAlias<Scalar>> Gb_1 = conj(G_dn[i_b + ldgd * j_b]);
+      const GPUComplex<RealAlias<Scalar>> Gb_1 = G_dn[i_b + ldgd * j_b];
 
-      contribution -= complex_factor * (Ga_1 * Gb_1);
+      contribution -= complex_factor * (Ga_1 * Gb_1) * phase;
     }
   }
   decltype(G4) const result_ptr = G4 + local_g4_index;

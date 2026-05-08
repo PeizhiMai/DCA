@@ -33,7 +33,9 @@ __CONSTANT__ int* k_ex_indices_actual;
 
 void G4Helper::set(int nb, int nk, int nw, const std::vector<int>& delta_k,
                    const std::vector<int>& delta_w, const int extension_offset, const int* add_k,
-                   int lda, const int* sub_k, int lds) {
+                   int lda, const int* sub_k, int lds,
+                   const std::vector<double>& q_minus_k_phase_real,
+                   const std::vector<double>& q_minus_k_phase_imag) {
   // Initialize the reciprocal cluster if not done already.
   solver::details::ClusterHelper::setMomentum(nk, add_k, lda, sub_k, lds);
 
@@ -71,6 +73,19 @@ void G4Helper::set(int nb, int nk, int nw, const std::vector<int>& delta_k,
   cudaMalloc(&host_helper.k_ex_indices_, sizeof(int) * delta_k.size());
   checkRC(cudaMemcpy(const_cast<int*>(host_helper.k_ex_indices_), delta_k.data(),
                      sizeof(int) * delta_k.size(), cudaMemcpyHostToDevice));
+
+  if (q_minus_k_phase_real.size() != q_minus_k_phase_imag.size())
+    throw(std::logic_error("The real and imaginary G4 phase tables have different sizes."));
+
+  cudaMalloc(&host_helper.q_minus_k_phase_real_, sizeof(double) * q_minus_k_phase_real.size());
+  checkRC(cudaMemcpy(const_cast<double*>(host_helper.q_minus_k_phase_real_),
+                     q_minus_k_phase_real.data(), sizeof(double) * q_minus_k_phase_real.size(),
+                     cudaMemcpyHostToDevice));
+
+  cudaMalloc(&host_helper.q_minus_k_phase_imag_, sizeof(double) * q_minus_k_phase_imag.size());
+  checkRC(cudaMemcpy(const_cast<double*>(host_helper.q_minus_k_phase_imag_),
+                     q_minus_k_phase_imag.data(), sizeof(double) * q_minus_k_phase_imag.size(),
+                     cudaMemcpyHostToDevice));
 
 #ifndef NDEBUG
   checkRC(cudaMalloc(&host_helper.bad_indicies_, sizeof(int) * 1024));
