@@ -12,7 +12,9 @@
 // same up to numerical error.
 
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include "dca/config/cmake_options.hpp"
@@ -69,6 +71,43 @@ using QmcSolverGpu = dca::phys::solver::StdThreadQmciClusterSolver<BaseSolverGpu
 
 using BaseSolverCpu = dca::phys::solver::CtauxClusterSolver<dca::linalg::CPU, Parameters, Data>;
 using QmcSolverCpu = dca::phys::solver::StdThreadQmciClusterSolver<BaseSolverCpu>;
+
+template <class Function>
+dca::func::util::Difference differenceForTransfer(const Function& cpu, const Function& gpu,
+                                                  const int k_transfer, const int w_transfer) {
+  double l1 = 0.;
+  double l2 = 0.;
+  double linf = 0.;
+
+  double l1_error = 0.;
+  double l2_error = 0.;
+  double linf_error = 0.;
+
+  for (int i = 0; i < cpu.size(); ++i) {
+    const auto subind = cpu.linind_2_subind(i);
+    if (subind[8] != std::size_t(k_transfer) || subind[9] != std::size_t(w_transfer))
+      continue;
+
+    const double ref = std::abs(cpu(i));
+    l1 += ref;
+    l2 += ref * ref;
+    linf = std::max(linf, ref);
+
+    const double err = std::abs(cpu(i) - gpu(i));
+    l1_error += err;
+    l2_error += err * err;
+    linf_error = std::max(linf_error, err);
+  }
+
+  const auto relative = [](const double numerator, const double denominator) {
+    if (denominator > 0)
+      return numerator / denominator;
+    return numerator == 0 ? 0. : std::numeric_limits<double>::infinity();
+  };
+
+  return {relative(l1_error, l1), relative(std::sqrt(l2_error), std::sqrt(l2)),
+          relative(linf_error, linf)};
+}
 
 TEST(PosixCtauxClusterSolverTest, G_k_w) {
   dca::linalg::util::initializeMagma();
@@ -131,5 +170,25 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
               << " l1=" << err_g4.l1 << " l2=" << err_g4.l2 << " l_inf=" << err_g4.l_inf
               << "\n";
     EXPECT_GE(5e-5, err_g4.l_inf) << "G4 channel: " << channel;
+
+    const auto& sizes = g4_cpu[channel].getDomainSizes();
+    ASSERT_EQ(10, sizes.size());
+    ASSERT_EQ(sizes, g4_gpu[channel].getDomainSizes());
+    std::cout << "CPU/GPU G4[" << channel << "] transfer-resolved relative differences over "
+              << sizes[8] << " momentum transfers and " << sizes[9] << " frequency transfers:\n";
+
+    for (int w_transfer = 0; w_transfer < sizes[9]; ++w_transfer) {
+      for (int k_transfer = 0; k_transfer < sizes[8]; ++k_transfer) {
+        const auto err_g4_transfer =
+            differenceForTransfer(g4_cpu[channel], g4_gpu[channel], k_transfer, w_transfer);
+        std::cout << "  G4[" << channel << "](k_transfer=" << k_transfer
+                  << ", w_transfer=" << w_transfer << ") relative differences:"
+                  << " l1=" << err_g4_transfer.l1 << " l2=" << err_g4_transfer.l2
+                  << " l_inf=" << err_g4_transfer.l_inf << "\n";
+        EXPECT_GE(5e-5, err_g4_transfer.l_inf)
+            << "G4 channel: " << channel << ", k_transfer: " << k_transfer
+            << ", w_transfer: " << w_transfer;
+      }
+    }
   }
 }
