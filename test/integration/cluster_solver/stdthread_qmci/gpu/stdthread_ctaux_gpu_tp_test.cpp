@@ -182,7 +182,7 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
       for (int q_index = 0; q_index < sizes[8]; ++q_index) {
         const auto err_g4_transfer =
             differenceForTransfer(g4_cpu[channel], g4_gpu[channel], q_index, w_index);
-        std::cout << "  G4[" << q_index << "," << w_index << "]"
+        std::cout << "  G(" << q_index << "," << w_index << ")"
                   << " channel=" << channel << " relative differences:"
                   << " l1=" << err_g4_transfer.l1 << " l2=" << err_g4_transfer.l2
                   << " l_inf=" << err_g4_transfer.l_inf << "\n";
