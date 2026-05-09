@@ -74,7 +74,7 @@ using QmcSolverCpu = dca::phys::solver::StdThreadQmciClusterSolver<BaseSolverCpu
 
 template <class Function>
 dca::func::util::Difference differenceForTransfer(const Function& cpu, const Function& gpu,
-                                                  const int k_transfer, const int w_transfer) {
+                                                  const int q_index, const int w_index) {
   double l1 = 0.;
   double l2 = 0.;
   double linf = 0.;
@@ -85,7 +85,7 @@ dca::func::util::Difference differenceForTransfer(const Function& cpu, const Fun
 
   for (int i = 0; i < cpu.size(); ++i) {
     const auto subind = cpu.linind_2_subind(i);
-    if (subind[8] != std::size_t(k_transfer) || subind[9] != std::size_t(w_transfer))
+    if (subind[8] != std::size_t(q_index) || subind[9] != std::size_t(w_index))
       continue;
 
     const double ref = std::abs(cpu(i));
@@ -166,7 +166,7 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
   ASSERT_EQ(g4_cpu.size(), g4_gpu.size());
   for (std::size_t channel = 0; channel < g4_cpu.size(); ++channel) {
     const auto err_g4 = dca::func::util::difference(g4_cpu[channel], g4_gpu[channel]);
-    std::cout << "CPU/GPU G4[" << channel << "] relative differences:"
+    std::cout << "CPU/GPU G4 channel " << channel << " all-transfer relative differences:"
               << " l1=" << err_g4.l1 << " l2=" << err_g4.l2 << " l_inf=" << err_g4.l_inf
               << "\n";
     EXPECT_GE(5e-5, err_g4.l_inf) << "G4 channel: " << channel;
@@ -174,20 +174,20 @@ TEST(PosixCtauxClusterSolverTest, G_k_w) {
     const auto& sizes = g4_cpu[channel].getDomainSizes();
     ASSERT_EQ(10, sizes.size());
     ASSERT_EQ(sizes, g4_gpu[channel].getDomainSizes());
-    std::cout << "CPU/GPU G4[" << channel << "] transfer-resolved relative differences over "
-              << sizes[8] << " momentum transfers and " << sizes[9] << " frequency transfers:\n";
+    std::cout << "CPU/GPU G4 channel " << channel
+              << " transfer-resolved relative differences over " << sizes[8]
+              << " q indices and " << sizes[9] << " w indices:\n";
 
-    for (int w_transfer = 0; w_transfer < sizes[9]; ++w_transfer) {
-      for (int k_transfer = 0; k_transfer < sizes[8]; ++k_transfer) {
+    for (int w_index = 0; w_index < sizes[9]; ++w_index) {
+      for (int q_index = 0; q_index < sizes[8]; ++q_index) {
         const auto err_g4_transfer =
-            differenceForTransfer(g4_cpu[channel], g4_gpu[channel], k_transfer, w_transfer);
-        std::cout << "  G4[" << channel << "](k_transfer=" << k_transfer
-                  << ", w_transfer=" << w_transfer << ") relative differences:"
+            differenceForTransfer(g4_cpu[channel], g4_gpu[channel], q_index, w_index);
+        std::cout << "  G4[" << q_index << "," << w_index << "]"
+                  << " channel=" << channel << " relative differences:"
                   << " l1=" << err_g4_transfer.l1 << " l2=" << err_g4_transfer.l2
                   << " l_inf=" << err_g4_transfer.l_inf << "\n";
         EXPECT_GE(5e-5, err_g4_transfer.l_inf)
-            << "G4 channel: " << channel << ", k_transfer: " << k_transfer
-            << ", w_transfer: " << w_transfer;
+            << "G4 channel: " << channel << ", q_index: " << q_index << ", w_index: " << w_index;
       }
     }
   }
