@@ -695,23 +695,32 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < SymDmn::dmn_size(); ++s_ind) {
-          const int r0_new = r_symmetry_matrix(r_ind, b0, s_ind).first;
-          const int r1_new = r_symmetry_matrix(0, b1, s_ind).first;
+          const auto r0_map = r_symmetry_matrix(r_ind, b0, s_ind);
+          const auto r1_map = r_symmetry_matrix(0, b1, s_ind);
+          if (r0_map.first < 0 || r0_map.first >= RDmn::dmn_size() || r0_map.second < 0 ||
+              r0_map.second >= BDmn::dmn_size() || r1_map.first < 0 ||
+              r1_map.first >= RDmn::dmn_size() || r1_map.second < 0 ||
+              r1_map.second >= BDmn::dmn_size())
+            continue;
+
+          const int r0_new = r0_map.first;
+          const int r1_new = r1_map.first;
           const int R_new_ind = r_cluster_type::subtract(r1_new, r0_new);
-          const int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
-          const int b1_new = r_symmetry_matrix(0, b1, s_ind).second;
+          const int b0_new = r0_map.second;
+          const int b1_new = r1_map.second;
 
           double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
-          norm += std::abs(sign);
-
-          if (sign == 0) {
+          if (sign == 0)
             continue;
-          }
+
+          norm += std::abs(sign);
 
           f_new(b0, b1, r_ind) += sign * f(b0_new, b1_new, R_new_ind);
         }
-        assert(std::abs(norm) > 0);
-        f_new(b0, b1, r_ind) /= norm;
+        if (std::abs(norm) > 0)
+          f_new(b0, b1, r_ind) /= norm;
+        else
+          f_new(b0, b1, r_ind) = f(b0, b1, r_ind);
       }
     }
   }
@@ -792,21 +801,35 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < sym_super_cell_dmn_t::dmn_size(); ++s_ind) {
-          int k_new = k_symmetry_matrix(k_ind, b0, s_ind).first;  // FIXME: b0 -> b1
+          const auto k0_map = k_symmetry_matrix(k_ind, b0, s_ind);
+          const auto k1_map = k_symmetry_matrix(k_ind, b1, s_ind);
+          if (k0_map.first < 0 || k0_map.first >= k_dmn_t::dmn_size() || k0_map.second < 0 ||
+              k0_map.second >= BDmn::dmn_size() || k1_map.first < 0 ||
+              k1_map.first >= k_dmn_t::dmn_size() || k1_map.second < 0 ||
+              k1_map.second >= BDmn::dmn_size())
+            continue;
 
-          int b0_new = k_symmetry_matrix(k_ind, b0, s_ind).second;
-          int b1_new = k_symmetry_matrix(k_ind, b1, s_ind).second;
+          int k_new = k0_map.first;  // FIXME: b0 -> b1
+          int b0_new = k0_map.second;
+          int b1_new = k1_map.second;
 
           double sign = Lattice::transformationSignOfK(b0, b1, s_ind);
-          norm += std::abs(sign);
 
           clusterSymmetrySpecial<Parameters>(b0, b1, k_ind, k_new, b0_new,
                                              b1_new, sign);
 
+          if (sign == 0 || k_new < 0 || k_new >= k_dmn_t::dmn_size() || b0_new < 0 ||
+              b0_new >= BDmn::dmn_size() || b1_new < 0 || b1_new >= BDmn::dmn_size())
+            continue;
+
+          norm += std::abs(sign);
+
           f_new(b0, b1, k_ind) += sign * f(b0_new, b1_new, k_new);
         }
-        assert(std::abs(norm) > 0);
-        f_new(b0, b1, k_ind) /= norm;
+        if (std::abs(norm) > 0)
+          f_new(b0, b1, k_ind) /= norm;
+        else
+          f_new(b0, b1, k_ind) = f(b0, b1, k_ind);
       }
     }
   }

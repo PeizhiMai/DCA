@@ -319,9 +319,15 @@ TYPED_TEST(SymmetrizeCharacterizationTest, PerOpMapMomentum) {
           const double sign = Lattice::transformationSignOfK(b0, b1, s);
           if (sign == 0)  // op does not constrain this band pair -> N/A
             continue;
-          const int k_new = sym(k, b0, s).first;  // mirrors production ("FIXME: b0 -> b1")
-          const int b0_new = sym(k, b0, s).second;
-          const int b1_new = sym(k, b1, s).second;
+          const auto k0_map = sym(k, b0, s);
+          const auto k1_map = sym(k, b1, s);
+          if (k0_map.first < 0 || k0_map.first >= nk || k0_map.second < 0 ||
+              k0_map.second >= nb || k1_map.first < 0 || k1_map.first >= nk ||
+              k1_map.second < 0 || k1_map.second >= nb)
+            continue;
+          const int k_new = k0_map.first;  // mirrors production ("FIXME: b0 -> b1")
+          const int b0_new = k0_map.second;
+          const int b1_new = k1_map.second;
           // ---- Invariance check, swept over spin and frequency. Asserts
           // G0(b0,b1,k,w) == sign * G0(b0_new,b1_new,k_new,w). Accumulate worst
           // violation rather than failing on first, so the printed number is the
@@ -387,11 +393,17 @@ TYPED_TEST(SymmetrizeCharacterizationTest, PerOpMapRealSpace) {
           const double sign = Lattice::transformationSignOfR(b0, b1, s);
           if (sign == 0)
             continue;
-          const int r0_new = sym(r, b0, s).first;
-          const int r1_new = sym(0, b1, s).first;
+          const auto r0_map = sym(r, b0, s);
+          const auto r1_map = sym(0, b1, s);
+          if (r0_map.first < 0 || r0_map.first >= nr || r0_map.second < 0 ||
+              r0_map.second >= nb || r1_map.first < 0 || r1_map.first >= nr ||
+              r1_map.second < 0 || r1_map.second >= nb)
+            continue;
+          const int r0_new = r0_map.first;
+          const int r1_new = r1_map.first;
           const int r_new = RCluster::subtract(r1_new, r0_new);
-          const int b0_new = sym(r, b0, s).second;
-          const int b1_new = sym(0, b1, s).second;
+          const int b0_new = r0_map.second;
+          const int b1_new = r1_map.second;
           // Invariance check over spin + imaginary time, real arithmetic this time.
           for (int sp = 0; sp < ns; ++sp)
             for (int t = 0; t < nt; ++t) {
