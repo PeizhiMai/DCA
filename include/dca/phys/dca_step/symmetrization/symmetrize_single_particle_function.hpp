@@ -9,7 +9,7 @@
 //         Peter Staar (taa@zurich.ibm.com)
 //
 // This class symmetrizes single-particle Greens functions according to cluster symmetries,
-// Matsubara/imaginary-time symmetries, and band-index symmetries.
+// matsubara frequencies and band-index symmetries.
 
 /*
  *  \section tau imaginary-time domain
@@ -20,19 +20,12 @@
  *
  *  \section omega matsubara-frequency domain
  *
- *   For matrix-valued Green's functions in the k-domain, Hermiticity acts at fixed cluster
- *   momentum:
+ *   For matrix-valued single-particle functions, Hermiticity relates orbital matrix
+ *   elements by transposition and conjugation:
  *
  *   \f{eqnarray*}{
- *     G_{ab}(\vec{k},\tau) &=& \overline{G_{ba}(\vec{k},\tau)} \\
- *     G_{ab}(\vec{k},-\varpi) &=& \overline{G_{ba}(\vec{k},\varpi)}
- *   \f}
- *
- *   In the r-domain, the corresponding relations are
- *
- *   \f{eqnarray*}{
- *     G_{ab}(\vec{r},\tau) &=& G_{ba}(-\vec{r},\tau) \\
- *     G_{ab}(\vec{r},-\varpi) &=& \overline{G_{ba}(-\vec{r},\varpi)}
+ *     G_{ab}(\vec{k}, \varpi) &=& \overline{G_{ba}(\vec{k}, -\varpi)} \\
+ *     G_{ab}(\vec{r}, \varpi) &=& \overline{G_{ba}(-\vec{r}, -\varpi)}
  *   \f}
  *
  *  \section r_and_k cluster domain
@@ -40,8 +33,10 @@
  *   For each symmetry operation \f$\mathcal{S}\f$ of the cluster-domain, we have
  *
  *   \f{eqnarray*}{
- *     G(\vec{r}) &=& G(\mathcal{S}(\vec{r})) \\
- *     G(\vec{k}) &=& G(\mathcal{S}(\vec{k})) \\
+ *     G_{ab}(\vec{k}) &=& s_{ab}(\mathcal{S})\,
+ *       G_{a'b'}(\mathcal{S}(\vec{k})) \\
+ *     G_{ab}(\vec{r}) &=& s_{ab}(\mathcal{S})\,
+ *       G_{a'b'}(\mathcal{S}(\vec{r}+\vec{r}_a)-\mathcal{S}(\vec{r}_b)) \\
  *   \f}
  */
 
@@ -53,6 +48,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "dca/function/domains.hpp"
@@ -524,66 +520,6 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
 
   f = std::move(f_new);
 
-  if constexpr (ClusterDmn::parameter_type::REPRESENTATION ==
-                domains::CLUSTER_REPRESENTATION::MOMENTUM_SPACE) {
-    func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDmn, TDmn>> f_herm(f.get_name());
-    f_herm = Scalar(0);
-
-    double hermitian_max = 0;
-    for (int t_ind = 0; t_ind < TDmn::dmn_size(); ++t_ind) {
-      for (int c_ind = 0; c_ind < ClusterDmn::dmn_size(); ++c_ind) {
-        for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
-          for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
-            const auto tmp = hermitianAverage(f(b0, b1, c_ind, t_ind), f(b1, b0, c_ind, t_ind));
-            f_herm(b0, b1, c_ind, t_ind) = tmp;
-            f_herm(b1, b0, c_ind, t_ind) = conjugate(tmp);
-
-            hermitian_max =
-                std::max(hermitian_max, std::abs(f(b0, b1, c_ind, t_ind) - f_herm(b0, b1, c_ind, t_ind)));
-            hermitian_max =
-                std::max(hermitian_max, std::abs(f(b1, b0, c_ind, t_ind) - f_herm(b1, b0, c_ind, t_ind)));
-          }
-        }
-      }
-    }
-
-    f = std::move(f_herm);
-
-    if (do_diff)
-      difference(hermitian_max, f.get_name(),
-                 "TDmn-domain fixed-k Hermiticity of the function : " + f.get_name() + "\n");
-  }
-  else if constexpr (ClusterDmn::parameter_type::REPRESENTATION ==
-                     domains::CLUSTER_REPRESENTATION::REAL_SPACE) {
-    func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDmn, TDmn>> f_real(f.get_name());
-    f_real = Scalar(0);
-
-    double r_symmetry_max = 0;
-    for (int t_ind = 0; t_ind < TDmn::dmn_size(); ++t_ind) {
-      for (int c_ind = 0; c_ind < ClusterDmn::dmn_size(); ++c_ind) {
-        const int opposite_c_idx = oppositeSite<ClusterDmn>(c_ind);
-        for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
-          for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
-            const auto tmp = (f(b0, b1, c_ind, t_ind) + f(b1, b0, opposite_c_idx, t_ind)) / 2.;
-            f_real(b0, b1, c_ind, t_ind) = tmp;
-            f_real(b1, b0, opposite_c_idx, t_ind) = tmp;
-
-            r_symmetry_max =
-                std::max(r_symmetry_max, std::abs(f(b0, b1, c_ind, t_ind) - f_real(b0, b1, c_ind, t_ind)));
-            r_symmetry_max = std::max(
-                r_symmetry_max, std::abs(f(b1, b0, opposite_c_idx, t_ind) - f_real(b1, b0, opposite_c_idx, t_ind)));
-          }
-        }
-      }
-    }
-
-    f = std::move(f_real);
-
-    if (do_diff)
-      difference(r_symmetry_max, f.get_name(),
-                 "TDmn-domain r to -r transpose symmetry of the function : " + f.get_name() + "\n");
-  }
-
   if (do_diff)
     difference(max, f.get_name(), "TDmn-domain of the function : " + f.get_name() + "\n");
 }
@@ -596,7 +532,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
   for (int i = 0; i < WDmn::dmn_size() / 2; i++) {
     max = std::max(max, abs((f(i) - conjugate(f(WDmn::dmn_size() - i - 1))) / 2.));
 
-    const Scalar tmp = hermitianAverage(f(i), f(WDmn::dmn_size() - i - 1));
+    Scalar tmp = hermitianAverage(f(i), f(WDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
     f(WDmn::dmn_size() - 1 - i) = conjugate(tmp);
@@ -618,17 +554,16 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
 
   for (int w_ind = 0; w_ind < WDmn::dmn_size() / 2; ++w_ind) {
     for (int c_ind = 0; c_ind < ClusterDomain::dmn_size(); ++c_ind) {
-      const int opposite_c_idx =
-          representation == domains::CLUSTER_REPRESENTATION::MOMENTUM_SPACE ? c_ind
-                                                                             : oppositeSite<ClusterDomain>(c_ind);
+      const int matrix_c_idx =
+          representation == domains::REAL_SPACE ? oppositeSite<ClusterDomain>(c_ind) : c_ind;
 
       for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
         for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
           const auto tmp =
-              hermitianAverage(f(b0, b1, c_ind, w_ind), f(b1, b0, opposite_c_idx, w_0 - w_ind));
+              hermitianAverage(f(b0, b1, c_ind, w_ind), f(b1, b0, matrix_c_idx, w_0 - w_ind));
 
           f_new(b0, b1, c_ind, w_ind) = tmp;
-          f_new(b1, b0, opposite_c_idx, w_0 - w_ind) = conjugate(tmp);
+          f_new(b1, b0, matrix_c_idx, w_0 - w_ind) = conjugate(tmp);
         }
       }
 
@@ -636,6 +571,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
                                                  ClusterDomain::get_elements(), c_ind, w_ind, w_0);
     }
   }
+
   if (do_diff) {
     double max = 0;
     for (std::size_t ind = 0; ind < f.size(); ++ind) {
@@ -665,7 +601,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
   for (int i = 0; i < WVertexDmn::dmn_size() / 2; i++) {
     max = std::max(max, abs((f(i) - conjugate(f(WVertexDmn::dmn_size() - i - 1))) / 2.));
 
-    const Scalar tmp = hermitianAverage(f(i), f(WVertexDmn::dmn_size() - i - 1));
+    Scalar tmp = hermitianAverage(f(i), f(WVertexDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
     f(WVertexDmn::dmn_size() - i - 1) = conjugate(tmp);
@@ -683,7 +619,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
   for (int i = 0; i < WVertexExtDmn::dmn_size() / 2; i++) {
     max = std::max(max, abs((f(i) - conjugate(f(WVertexExtDmn::dmn_size() - i - 1))) / 2.));
 
-    const Scalar tmp = hermitianAverage(f(i), f(WVertexExtDmn::dmn_size() - i - 1));
+    Scalar tmp = hermitianAverage(f(i), f(WVertexExtDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
     f(WVertexExtDmn::dmn_size() - i - 1) = conjugate(tmp);
@@ -759,20 +695,18 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < SymDmn::dmn_size(); ++s_ind) {
-          int R_new_ind = r_symmetry_matrix(r_ind, 0, s_ind).first;
-
-          int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
-          int b1_new = r_symmetry_matrix(0, b1, s_ind).second;
+          const int r0_new = r_symmetry_matrix(r_ind, b0, s_ind).first;
+          const int r1_new = r_symmetry_matrix(0, b1, s_ind).first;
+          const int R_new_ind = r_cluster_type::subtract(r1_new, r0_new);
+          const int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
+          const int b1_new = r_symmetry_matrix(0, b1, s_ind).second;
 
           double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
           norm += std::abs(sign);
 
-          //if (b0 != b1) {
-          //  R_new_ind = r_ind;
-          //  b0_new = b0;
-          //  b1_new = b1;
-          //  sign = 1;
-          //}
+          if (sign == 0) {
+            continue;
+          }
 
           f_new(b0, b1, r_ind) += sign * f(b0_new, b1_new, R_new_ind);
         }
@@ -791,7 +725,6 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
 
   if (do_diff)
     difference(max, f.get_name(), "r-cluster-domain of the function : " + f.get_name() + "\n");
-
 }
 
 template <class Parameters>
