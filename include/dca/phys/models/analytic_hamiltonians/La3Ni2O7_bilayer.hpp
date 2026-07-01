@@ -44,11 +44,19 @@ public:
   const static int DIMENSION = 2;
   const static int BANDS = 4;
 
-  constexpr static int transformationSignOfR(int, int, int) {
-    return 1;
+  constexpr static int orbitalSign(int b, int s) {
+    // Bands 0 and 2 are d_{x^2-y^2}; bands 1 and 3 are d_{3z^2-r^2}.
+    // For the D4 operation order in 2d_square.hpp the d_{x^2-y^2} orbital changes sign under
+    // diagonal mirrors and C4 rotations: Sn(1,8), Sn(3,8), C4, and C4^3.
+    const bool dx2_y2 = b == 0 || b == 2;
+    const bool odd_dx2_y2_operation = s == 1 || s == 3 || s == 4 || s == 6;
+    return dx2_y2 && odd_dx2_y2_operation ? -1 : 1;
   }
-  constexpr static int transformationSignOfK(int, int, int) {
-    return 1;
+  constexpr static int transformationSignOfR(int b1, int b2, int s) {
+    return orbitalSign(b1, s) * orbitalSign(b2, s);
+  }
+  constexpr static int transformationSignOfK(int b1, int b2, int s) {
+    return orbitalSign(b1, s) * orbitalSign(b2, s);
   }
 
   static const double* initializeRDCABasis();

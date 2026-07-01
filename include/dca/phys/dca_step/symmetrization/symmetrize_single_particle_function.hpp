@@ -690,13 +690,15 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
 
   f_new = Scalar(0.);
 
+  const int origin = r_cluster_type::origin_index();
+
   for (int r_ind = 0; r_ind < RDmn::dmn_size(); ++r_ind) {
     for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < SymDmn::dmn_size(); ++s_ind) {
           const auto r0_map = r_symmetry_matrix(r_ind, b0, s_ind);
-          const auto r1_map = r_symmetry_matrix(0, b1, s_ind);
+          const auto r1_map = r_symmetry_matrix(origin, b1, s_ind);
           if (r0_map.first < 0 || r0_map.first >= RDmn::dmn_size() || r0_map.second < 0 ||
               r0_map.second >= BDmn::dmn_size() || r1_map.first < 0 ||
               r1_map.first >= RDmn::dmn_size() || r1_map.second < 0 ||
@@ -705,7 +707,7 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
 
           const int r0_new = r0_map.first;
           const int r1_new = r1_map.first;
-          const int R_new_ind = r_cluster_type::subtract(r1_new, r0_new);
+          const int R_new_ind = r_cluster_type::subtract(r0_new, r1_new);
           const int b0_new = r0_map.second;
           const int b1_new = r1_map.second;
 

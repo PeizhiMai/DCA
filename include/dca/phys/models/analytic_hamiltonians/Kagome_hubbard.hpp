@@ -38,8 +38,10 @@ public:
   static constexpr bool spin_symmetric = true;
 
   using LDA_point_group = domains::no_symmetry<2>;
-  using DCA_point_group = SymmetryGroup;
-  // typedef PointGroupType DCA_point_group;
+  // The C6 orbital mapping/sign representation for this model is incomplete (see TODO above).
+  // Use the identity group for DCA symmetrization until the Kagome point-group representation is
+  // validated.
+  using DCA_point_group = domains::no_symmetry<2>;
 
   const static ClusterShapeType DCA_cluster_shape = BETT_CLUSTER;
   const static ClusterShapeType LDA_cluster_shape = PARALLELEPIPED;
