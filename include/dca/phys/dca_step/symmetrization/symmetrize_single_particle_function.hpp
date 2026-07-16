@@ -20,8 +20,12 @@
  *
  *  \section omega matsubara-frequency domain
  *
+ *   For matrix-valued single-particle functions, Hermiticity relates orbital matrix
+ *   elements by transposition and conjugation:
+ *
  *   \f{eqnarray*}{
- *     G(\varpi) &=& \overline{G(-\varpi)}
+ *     G_{ab}(\vec{k}, \varpi) &=& \overline{G_{ba}(\vec{k}, -\varpi)} \\
+ *     G_{ab}(\vec{r}, \varpi) &=& \overline{G_{ba}(-\vec{r}, -\varpi)}
  *   \f}
  *
  *  \section r_and_k cluster domain
@@ -29,8 +33,10 @@
  *   For each symmetry operation \f$\mathcal{S}\f$ of the cluster-domain, we have
  *
  *   \f{eqnarray*}{
- *     G(\vec{r}) &=& G(\mathcal{S}(\vec{r})) \\
- *     G(\vec{k}) &=& G(\mathcal{S}(\vec{k})) \\
+ *     G_{ab}(\vec{k}) &=& s_{ab}(\mathcal{S})\,
+ *       G_{a'b'}(\mathcal{S}(\vec{k})) \\
+ *     G_{ab}(\vec{r}) &=& s_{ab}(\mathcal{S})\,
+ *       G_{a'b'}(\mathcal{S}(\vec{r}+\vec{r}_a)-\mathcal{S}(\vec{r}_b)) \\
  *   \f}
  */
 
@@ -42,6 +48,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "dca/function/domains.hpp"
@@ -169,6 +176,21 @@ public:
   }
 
 private:
+  template <typename T>
+  static T conjugate(const T& value) {
+    return value;
+  }
+
+  template <typename T>
+  static std::complex<T> conjugate(const std::complex<T>& value) {
+    return std::conj(value);
+  }
+
+  template <typename Scalar>
+  static Scalar hermitianAverage(const Scalar& lhs, const Scalar& rhs) {
+    return (lhs + conjugate(rhs)) / 2.;
+  }
+
   template <typename Scalar>
   static void difference(Scalar val, std::string function_name, std::string dmn_name);
 
@@ -508,12 +530,12 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
                                                            bool do_diff) {
   double max = 0;
   for (int i = 0; i < WDmn::dmn_size() / 2; i++) {
-    max = std::max(max, abs((f(i) - std::conj(f(WDmn::dmn_size() - i - 1))) / 2.));
+    max = std::max(max, abs((f(i) - conjugate(f(WDmn::dmn_size() - i - 1))) / 2.));
 
-    Scalar tmp = (f(i) + std::conj(f(WDmn::dmn_size() - i - 1))) / 2.;
+    Scalar tmp = hermitianAverage(f(i), f(WDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
-    f(WDmn::dmn_size() - 1 - i) = std::conj(tmp);
+    f(WDmn::dmn_size() - 1 - i) = conjugate(tmp);
   }
 
   if (do_diff)
@@ -525,41 +547,23 @@ template <typename Scalar, typename ClusterDomain>
 void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
     func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDomain, WDmn>>& f, bool do_diff) {
   func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDomain, WDmn>> f_new;
+  f_new = Scalar(0);
 
-  int w_0 = WDmn::dmn_size() - 1;
+  const int w_0 = WDmn::dmn_size() - 1;
   constexpr auto representation = ClusterDomain::parameter_type::REPRESENTATION;
 
   for (int w_ind = 0; w_ind < WDmn::dmn_size() / 2; ++w_ind) {
     for (int c_ind = 0; c_ind < ClusterDomain::dmn_size(); ++c_ind) {
-      const int new_c_idx =
+      const int matrix_c_idx =
           representation == domains::REAL_SPACE ? oppositeSite<ClusterDomain>(c_ind) : c_ind;
 
       for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
         for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
-          constexpr bool real_hamiltonian = !Parameters::complex_g0;
-          if constexpr (real_hamiltonian) {
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
-            const auto tmp3 = f(b0, b1, c_ind, w_0 - w_ind);      // F(w) = conj(F(-w))
-            const auto tmp4 = f(b1, b0, new_c_idx, w_ind);        // F(w) = F^t(w)
+          const auto tmp =
+              hermitianAverage(f(b0, b1, c_ind, w_ind), f(b1, b0, matrix_c_idx, w_0 - w_ind));
 
-            const auto tmp = (tmp1 + std::conj(tmp2) + std::conj(tmp3) + tmp4) / 4.;
-
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
-            f_new(b0, b1, c_ind, w_0 - w_ind) = std::conj(tmp);
-            f_new(b1, b0, new_c_idx, w_ind) = tmp;
-          }
-          else {  // Hamiltonian is complex.
-            // std::cout << "Symmetrizing complex Hamiltonian \n";
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
-
-            const auto tmp = (tmp1 + std::conj(tmp2)) / 2.;
-
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
-          }
+          f_new(b0, b1, c_ind, w_ind) = tmp;
+          f_new(b1, b0, matrix_c_idx, w_0 - w_ind) = conjugate(tmp);
         }
       }
 
@@ -595,12 +599,12 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
                                                            bool do_diff) {
   double max = 0;
   for (int i = 0; i < WVertexDmn::dmn_size() / 2; i++) {
-    max = std::max(max, abs((f(i) - std::conj(f(WVertexDmn::dmn_size() - i - 1))) / 2.));
+    max = std::max(max, abs((f(i) - conjugate(f(WVertexDmn::dmn_size() - i - 1))) / 2.));
 
-    Scalar tmp = (f(i) + std::conj(f(WVertexDmn::dmn_size() - i - 1))) / 2.;
+    Scalar tmp = hermitianAverage(f(i), f(WVertexDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
-    f(WVertexDmn::dmn_size() - i - 1) = std::conj(tmp);
+    f(WVertexDmn::dmn_size() - i - 1) = conjugate(tmp);
   }
 
   if (do_diff)
@@ -613,12 +617,12 @@ void SymmetrizeSingleParticleFunction<Parameters>::execute(func::function<Scalar
                                                            bool do_diff) {
   double max = 0;
   for (int i = 0; i < WVertexExtDmn::dmn_size() / 2; i++) {
-    max = std::max(max, abs((f(i) - std::conj(f(WVertexExtDmn::dmn_size() - i - 1))) / 2.));
+    max = std::max(max, abs((f(i) - conjugate(f(WVertexExtDmn::dmn_size() - i - 1))) / 2.));
 
-    Scalar tmp = (f(i) + std::conj(f(WVertexExtDmn::dmn_size() - i - 1))) / 2.;
+    Scalar tmp = hermitianAverage(f(i), f(WVertexExtDmn::dmn_size() - i - 1));
 
     f(i) = tmp;
-    f(WVertexExtDmn::dmn_size() - i - 1) = std::conj(tmp);
+    f(WVertexExtDmn::dmn_size() - i - 1) = conjugate(tmp);
   }
 
   if (do_diff)
@@ -686,24 +690,26 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
 
   f_new = Scalar(0.);
 
+  const int origin = r_cluster_type::origin_index();
+
   for (int r_ind = 0; r_ind < RDmn::dmn_size(); ++r_ind) {
     for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < SymDmn::dmn_size(); ++s_ind) {
-          int R_new_ind = r_symmetry_matrix(r_ind, 0, s_ind).first;
-
-          int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
-          int b1_new = r_symmetry_matrix(0, b1, s_ind).second;
+          const int r0_new = r_symmetry_matrix(r_ind, b0, s_ind).first;
+          const int r1_new = r_symmetry_matrix(origin, b1, s_ind).first;
+          // cluster_domain::subtract(i, j) returns r_j - r_i.  The transformed Green-function
+          // displacement is the first endpoint minus the second endpoint.
+          const int R_new_ind = r_cluster_type::subtract(r1_new, r0_new);
+          const int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
+          const int b1_new = r_symmetry_matrix(origin, b1, s_ind).second;
 
           double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
           norm += std::abs(sign);
 
-          if (b0 != b1) {
-            R_new_ind = r_ind;
-            b0_new = b0;
-            b1_new = b1;
-            sign = 1;
+          if (sign == 0) {
+            continue;
           }
 
           f_new(b0, b1, r_ind) += sign * f(b0_new, b1_new, R_new_ind);

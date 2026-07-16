@@ -108,7 +108,7 @@ std::vector<int>& TightBindingModel<Lattice>::LDA_grid_size() {
 
 template <typename Lattice>
 const double* TightBindingModel<Lattice>::get_r_DCA_basis() {
-  if constexpr (std::is_same_v<decltype(Lattice::initializeRDCABasis()), const double *>) {
+  if constexpr (std::is_convertible_v<decltype(Lattice::initializeRDCABasis()), const double*>) {
     static const double* r_DCA = Lattice::initializeRDCABasis();
     return r_DCA;
   }
@@ -120,7 +120,7 @@ const double* TightBindingModel<Lattice>::get_r_DCA_basis() {
 
 template <typename Lattice>
 const double* TightBindingModel<Lattice>::get_r_LDA_basis() {
-  if constexpr (std::is_same_v<decltype(Lattice::initializeRLDABasis()), const double *>) {
+  if constexpr (std::is_convertible_v<decltype(Lattice::initializeRLDABasis()), const double*>) {
     static const double* r_LDA = Lattice::initializeRLDABasis();
     return r_LDA;
   }

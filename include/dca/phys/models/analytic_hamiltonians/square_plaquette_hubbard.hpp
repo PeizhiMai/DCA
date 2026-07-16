@@ -110,7 +110,8 @@ const double* squarePlaquetteHubbard<PointGroupType>::initializeRLDABasis() {
 
 template <typename PointGroupType>
 std::vector<int> squarePlaquetteHubbard<PointGroupType>::flavors() {
-  return {0, 1, 2,3};
+  // The four plaquette sites are symmetry-equivalent positions of the same orbital.
+  return {0, 0, 0, 0};
 }
 
 template <typename PointGroupType>

@@ -89,24 +89,24 @@ int ThreebandHubbard<PointGroupType>::transformationSignOfR(int b1, int b2, int 
   if (!std::is_same<PointGroupType, domains::D4>::value)
     return 1;
 
+  if (s < 0 || s >= 8 || b1 < 0 || b1 >= BANDS || b2 < 0 || b2 >= BANDS)
+    throw std::logic_error("Invalid three-band D4 symmetry index.");
+
+  // The D4 operation order produced by search_symmetry_group is:
+  //   0: identity, 1: C4^-1, 2: C2, 3: C4,
+  //   4: reflection y=-x, 5: reflection y-axis, 6: reflection y=x, 7: reflection x-axis.
+  //
+  // In real space the current symmetrizer can apply a constant orbital gauge sign but no
+  // additional k-dependent phase.  Therefore only the off-diagonal relations that are
+  // represented by a pure sign in this orbital-position gauge are enabled here.  Returning 0
+  // means that this operation should not constrain that off-diagonal orbital pair.
   if (b1 == b2)
     return 1;
-  else if (b1 != 0 && b2 != 0) {
-    if (s == 0 || s == 6)
-      return 1;
-    else
-      return 0;
-  }
-  else if ((b1 != b2 && b1 == 0) || (b1 != b2 && b2 == 0)) {
-    if (s == 0)
-      return 1;
-    else if (s == 6)
-      return -1;
-    else
-      return 0;
-  }
 
-  return s == 0;
+  if (b1 != 0 && b2 != 0)
+    return (s == 0 || s == 6) ? 1 : 0;
+
+  return s == 0 ? 1 : (s == 6 ? -1 : 0);
 }
 
 template <typename PointGroupType>
@@ -114,10 +114,17 @@ int ThreebandHubbard<PointGroupType>::transformationSignOfK(int b1, int b2, int 
   if (!std::is_same<PointGroupType, domains::D4>::value)
     return 1;
 
-  if ((b1 == b2) || (b1 != 0 && b2 != 0))
+  if (s < 0 || s >= 8 || b1 < 0 || b1 >= BANDS || b2 < 0 || b2 >= BANDS)
+    throw std::logic_error("Invalid three-band D4 symmetry index.");
+
+  if (b1 == b2 || (b1 != 0 && b2 != 0))
     return 1;
-  else
-    return (s == 0 || s == 2 || s == 5 || s == 7) ? 1 : -1;
+
+  // Cu-O matrix elements carry the gauge sign of H0(k):
+  //   H_d,px = -2 i t_pd sin(k_x/2), H_d,py = +2 i t_pd sin(k_y/2).
+  // In momentum space this sign table covers all D4 operations.
+  static constexpr int cu_o_sign[8] = {+1, -1, +1, -1, -1, +1, -1, +1};
+  return cu_o_sign[s];
 }
 
 template <typename PointGroupType>

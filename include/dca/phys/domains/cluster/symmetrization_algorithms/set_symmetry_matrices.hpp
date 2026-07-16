@@ -92,6 +92,7 @@ void set_symmetry_matrices<base_cluster_type>::set_r_symmetry_matrix() {
         trafo_r_plus_a = cluster_operations::translate_inside_cluster(
             trafo_r_plus_a, r_cluster_type::get_super_basis_vectors());
 
+        bool found_match = false;
         for (int r_ind = 0; r_ind < r_dmn_t::dmn_size(); ++r_ind) {
           for (int b_ind = 0; b_ind < b_dmn_t::dmn_size(); ++b_ind) {
             std::vector<double> rj_plus_aj = math::util::add(r_dmn_t::get_elements()[r_ind],
@@ -102,12 +103,26 @@ void set_symmetry_matrices<base_cluster_type>::set_r_symmetry_matrix() {
                 rj_plus_aj, r_cluster_type::get_super_basis_vectors());
 
             if (math::util::distance2(rj_plus_aj, trafo_r_plus_a) < 1.e-6 and
-                b_dmn_t::get_elements()[j].flavor == b_dmn_t::get_elements()[b_ind].flavor)
+                b_dmn_t::get_elements()[j].flavor == b_dmn_t::get_elements()[b_ind].flavor) {
+              const bool exact_match = r_ind == i && b_ind == j;
+              if (found_match && !exact_match)
+                continue;
+
               symmetry_matrix(i, j, l) = std::pair<int, int>(r_ind, b_ind);
+              found_match = true;
+
+              // If multiple orbitals have the same position and flavor, the identity operation
+              // must still map an orbital to itself.  Prefer that exact match over later
+              // degenerate candidates.
+              if (exact_match)
+                break;
+            }
           }
+          if (symmetry_matrix(i, j, l).first == i && symmetry_matrix(i, j, l).second == j)
+            break;
         }
 
-        if (symmetry_matrix(i, j, l).first == -1 or symmetry_matrix(i, j, l).second == -1) {
+        if (!found_match) {
           std::vector<double> r_plus_a =
               math::util::add(r_dmn_t::get_elements()[i], b_dmn_t::get_elements()[j].a_vec);
 
