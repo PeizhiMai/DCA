@@ -112,20 +112,15 @@ struct SquareD4 {
   static constexpr int expected_num_derived_symmetries = 8;
 };
 
-// CASE 2 -- three-band Hubbard (Emery/CuO2) model on D4. This case fails the
-// newly-introduced test, indicating a possible bug we expect to fix in the next
-// milestone of the symmetrization project.
+// CASE 2 -- three-band Hubbard (Emery/CuO2) model on D4. This is the multiband
+// regression case for matrix-valued frequency symmetries and orbital-endpoint-aware
+// real-space cluster symmetrization.
 struct ThreebandD4 {
   using Scalar = double;
   using Lattice = dca::phys::models::ThreebandHubbard<dca::phys::domains::D4>;
   static constexpr char Input[] = "threeband_D4_input.json";
   static constexpr int expected_num_symmetries = 8;
-  // The per-op cluster maps are GREEN -- each single operation's table encoding is
-  // consistent with G0 -- but the production Symmetrize::execute is NOT a no-op on
-  // the deterministic G0, suggesting buggy behavior in how multi-band symmetry
-  // is imposed. These flip to green when the next milestone in the symmetrization
-  // project rewrites the imposition.
-  static std::vector<std::string> expectedFailingReps() { return {"k_iw", "r_iw", "r_tau"}; }
+  static std::vector<std::string> expectedFailingReps() { return {}; }
   static std::vector<int> expectedFailingKOps() { return {}; }
   static std::vector<int> expectedFailingROps() { return {}; }
   static std::vector<int> expectedUnverifiedKOps() { return {}; }
@@ -603,10 +598,8 @@ TYPED_TEST(SymmetrizeCharacterizationTest, MappedPointShadow) {
             << ")";
 }
 
-// TEST 7: PerOpMapRealSpace -- mirror of TEST 3 but in real space / tau, and with one
-// key difference: it skips off-diagonal band pairs (b0!=b1) because production's real-space
-// executeCluster does the same. That skip is itself one of the suspected bugs, so this test
-// characterizes production's behavior, off-diag blind spot included.
+// TEST 7: PerOpMapRealSpace -- mirror of TEST 3 but in real space / tau, using the same
+// endpoint-relative orbital mapping as production.
 TYPED_TEST(SymmetrizeCharacterizationTest, PerOpMapRealSpace) {
   using Fixture = SymmetrizeCharacterizationTest<TypeParam>;
   using KClusterDmn = typename Fixture::KClusterDmn;
@@ -630,6 +623,7 @@ TYPED_TEST(SymmetrizeCharacterizationTest, PerOpMapRealSpace) {
   const int ns = SDmn::dmn_size();
   const int nr = RClusterDmn::dmn_size();
   const int nt = TDmn::dmn_size();
+  const int origin = RCluster::origin_index();
 
   std::vector<int> failing_ops;
   std::cout << "[per-op real-space map] " << TypeParam::Input << "\n";
@@ -639,15 +633,15 @@ TYPED_TEST(SymmetrizeCharacterizationTest, PerOpMapRealSpace) {
     for (int r = 0; r < nr; ++r)
       for (int b0 = 0; b0 < nb; ++b0)
         for (int b1 = 0; b1 < nb; ++b1) {
-          if (b0 != b1)  // off-diagonal skip in executeCluster -> N/A
-            continue;
-          // Real-space phase for this diagonal element under op s; 0 => N/A.
+          // Real-space phase for this orbital pair under op s; 0 => N/A.
           const double sign = Lattice::transformationSignOfR(b0, b1, s);
           if (sign == 0)
             continue;
-          const int r_new = sym(r, 0, s).first;
+          const int r0_new = sym(r, b0, s).first;
+          const int r1_new = sym(origin, b1, s).first;
+          const int r_new = RCluster::subtract(r1_new, r0_new);
           const int b0_new = sym(r, b0, s).second;
-          const int b1_new = sym(0, b1, s).second;
+          const int b1_new = sym(origin, b1, s).second;
           // Invariance check over spin + imaginary time, real arithmetic this time.
           for (int sp = 0; sp < ns; ++sp)
             for (int t = 0; t < nt; ++t) {

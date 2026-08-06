@@ -20,8 +20,12 @@
  *
  *  \section omega matsubara-frequency domain
  *
+ *   For matrix-valued single-particle functions, Hermiticity relates transposed orbital
+ *   components:
+ *
  *   \f{eqnarray*}{
- *     G(\varpi) &=& \overline{G(-\varpi)}
+ *     G_{ab}(\vec{k}, \varpi) &=& \overline{G_{ba}(\vec{k}, -\varpi)} \\
+ *     G_{ab}(\vec{r}, \varpi) &=& \overline{G_{ba}(-\vec{r}, -\varpi)}
  *   \f}
  *
  *  \section r_and_k cluster domain
@@ -29,8 +33,8 @@
  *   For each symmetry operation \f$\mathcal{S}\f$ of the cluster-domain, we have
  *
  *   \f{eqnarray*}{
- *     G(\vec{r}) &=& G(\mathcal{S}(\vec{r})) \\
- *     G(\vec{k}) &=& G(\mathcal{S}(\vec{k})) \\
+ *     G_{ab}(\vec{r}) &=& s_{ab}(\mathcal{S}) G_{a'b'}(\mathcal{S}(\vec{r})) \\
+ *     G_{ab}(\vec{k}) &=& s_{ab}(\mathcal{S}) G_{a'b'}(\mathcal{S}(\vec{k})) \\
  *   \f}
  */
 
@@ -525,41 +529,28 @@ template <typename Scalar, typename ClusterDomain>
 void SymmetrizeSingleParticleFunction<Parameters>::executeTimeOrFreq(
     func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDomain, WDmn>>& f, bool do_diff) {
   func::function<Scalar, func::dmn_variadic<BDmn, BDmn, ClusterDomain, WDmn>> f_new;
+  f_new = Scalar(0);
 
-  int w_0 = WDmn::dmn_size() - 1;
+  const int w_0 = WDmn::dmn_size() - 1;
   constexpr auto representation = ClusterDomain::parameter_type::REPRESENTATION;
 
   for (int w_ind = 0; w_ind < WDmn::dmn_size() / 2; ++w_ind) {
     for (int c_ind = 0; c_ind < ClusterDomain::dmn_size(); ++c_ind) {
-      const int new_c_idx =
+      const int matrix_c_idx =
           representation == domains::REAL_SPACE ? oppositeSite<ClusterDomain>(c_ind) : c_ind;
 
       for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
         for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
-          constexpr bool real_hamiltonian = !Parameters::complex_g0;
-          if constexpr (real_hamiltonian) {
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
-            const auto tmp3 = f(b0, b1, c_ind, w_0 - w_ind);      // F(w) = conj(F(-w))
-            const auto tmp4 = f(b1, b0, new_c_idx, w_ind);        // F(w) = F^t(w)
+          // Matrix Hermiticity is independent of whether H0 is real in real space.  In
+          // particular, a real-space Hamiltonian can have complex, non-symmetric off-diagonal
+          // orbital elements in momentum space because of the intra-cell orbital gauge.
+          const auto tmp =
+              (f(b0, b1, c_ind, w_ind) +
+               std::conj(f(b1, b0, matrix_c_idx, w_0 - w_ind))) /
+              2.;
 
-            const auto tmp = (tmp1 + std::conj(tmp2) + std::conj(tmp3) + tmp4) / 4.;
-
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
-            f_new(b0, b1, c_ind, w_0 - w_ind) = std::conj(tmp);
-            f_new(b1, b0, new_c_idx, w_ind) = tmp;
-          }
-          else {  // Hamiltonian is complex.
-            // std::cout << "Symmetrizing complex Hamiltonian \n";
-            const auto tmp1 = f(b0, b1, c_ind, w_ind);
-            const auto tmp2 = f(b1, b0, new_c_idx, w_0 - w_ind);  // F(w) = conj(F^t(-w))
-
-            const auto tmp = (tmp1 + std::conj(tmp2)) / 2.;
-
-            f_new(b0, b1, c_ind, w_ind) = tmp;
-            f_new(b1, b0, new_c_idx, w_0 - w_ind) = std::conj(tmp);
-          }
+          f_new(b0, b1, c_ind, w_ind) = tmp;
+          f_new(b1, b0, matrix_c_idx, w_0 - w_ind) = std::conj(tmp);
         }
       }
 
@@ -685,26 +676,26 @@ void SymmetrizeSingleParticleFunction<Parameters>::executeCluster(
   static func::function<Scalar, func::dmn_variadic<BDmn, BDmn, RDmn>> f_new;
 
   f_new = Scalar(0.);
+  const int origin = r_cluster_type::origin_index();
 
   for (int r_ind = 0; r_ind < RDmn::dmn_size(); ++r_ind) {
     for (int b0 = 0; b0 < BDmn::dmn_size(); ++b0) {
       for (int b1 = 0; b1 < BDmn::dmn_size(); ++b1) {
         double norm = 0.;
         for (int s_ind = 0; s_ind < SymDmn::dmn_size(); ++s_ind) {
-          int R_new_ind = r_symmetry_matrix(r_ind, 0, s_ind).first;
+          // G_ab(r) connects the physical endpoints r + a_b0 and a_b1.  Transform both
+          // endpoints, then reconstruct their relative unit-cell displacement.  subtract(i, j)
+          // returns r_j - r_i, hence the reversed argument order below.
+          const int r0_new = r_symmetry_matrix(r_ind, b0, s_ind).first;
+          const int r1_new = r_symmetry_matrix(origin, b1, s_ind).first;
+          const int R_new_ind = r_cluster_type::subtract(r1_new, r0_new);
+          const int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
+          const int b1_new = r_symmetry_matrix(origin, b1, s_ind).second;
 
-          int b0_new = r_symmetry_matrix(r_ind, b0, s_ind).second;
-          int b1_new = r_symmetry_matrix(0, b1, s_ind).second;
-
-          double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
+          const double sign = Lattice::transformationSignOfR(b0, b1, s_ind);
+          if (sign == 0)
+            continue;
           norm += std::abs(sign);
-
-          if (b0 != b1) {
-            R_new_ind = r_ind;
-            b0_new = b0;
-            b1_new = b1;
-            sign = 1;
-          }
 
           f_new(b0, b1, r_ind) += sign * f(b0_new, b1_new, R_new_ind);
         }
